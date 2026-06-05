@@ -95,6 +95,66 @@ tr:hover td{background:#f4f7fa}
 .lu-btn{font-size:.68rem;background:#005078;color:#fad200;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;flex-shrink:0}
 @media(max-width:580px){.htitle h1{font-size:1rem}#headerLogo{height:52px}.dg-sel{flex-direction:column}.nav-tab{padding:8px 9px;font-size:.7rem}.ov-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
+<script type="module">
+// ── FIREBASE SETUP ────────────────────────────────────────────
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDl4GVJBq3qrvTdNzHRWMLdFFYXZBeKSsI",
+  authDomain: "vicky-turnier.firebaseapp.com",
+  projectId: "vicky-turnier",
+  storageBucket: "vicky-turnier.firebasestorage.app",
+  messagingSenderId: "744381828845",
+  appId: "1:744381828845:web:f52c960d168b16e66346e4"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+
+// Daten in Firestore speichern
+window.fbSave = async function(data) {
+  try {
+    await setDoc(doc(db, "turnier", "daten"), { payload: JSON.stringify(data) });
+  } catch(e) { console.error("Firebase save error:", e); }
+};
+
+// Echtzeit-Listener: Wenn sich Daten in Firebase ändern → sofort neu laden
+window.fbListen = function(callback) {
+  onSnapshot(doc(db, "turnier", "daten"), (snap) => {
+    if (snap.exists()) {
+      try {
+        const data = JSON.parse(snap.data().payload);
+        callback(data);
+      } catch(e) { console.error("Firebase parse error:", e); }
+    }
+  });
+};
+
+// Beim Start: Daten aus Firebase laden, dann Listener starten
+window.fbInit = async function(defaultData, callback) {
+  try {
+    const snap = await getDoc(doc(db, "turnier", "daten"));
+    if (snap.exists()) {
+      const data = JSON.parse(snap.data().payload);
+      callback(data);
+    } else {
+      // Erste Nutzung: Default-Daten in Firebase schreiben
+      await window.fbSave(defaultData);
+      callback(defaultData);
+    }
+  } catch(e) {
+    console.error("Firebase init error:", e);
+    callback(defaultData);
+  }
+  // Echtzeit-Updates lauschen
+  window.fbListen(callback);
+};
+
+// Signal an Hauptscript dass Firebase bereit ist
+window.firebaseReady = true;
+window.dispatchEvent(new Event('firebaseReady'));
+</script>
 </head>
 <body class="dg1">
 <div class="header">
@@ -247,21 +307,43 @@ function defD(){
   return o;
 }
 
-// Beim Laden: alten Key migrieren falls vorhanden
-function loadData(){
-  const raw=localStorage.getItem('vicky_v3');
-  if(raw) try{return JSON.parse(raw);}catch(e){}
-  return defD();
-}
-let D=loadData();
+let D=defD();
 let cDG=1, selTeam={};
+let _fbReady=false;
+let _ignoreNextUpdate=false; // verhindert Render-Loop beim eigenen Speichern
 
 function save(){
   const s=document.getElementById('a-start');
   if(s){const dg=document.getElementById('a-dg').value;D.starts[dg]=s.value;}
+  // Lokal cachen als Fallback
   localStorage.setItem('vicky_v3',JSON.stringify(D));
+  // In Firebase speichern
+  if(window.fbSave){
+    _ignoreNextUpdate=true;
+    window.fbSave(D);
+    setTimeout(()=>{_ignoreNextUpdate=false;},2000);
+  }
 }
 function saveStart(){save();}
+
+// Firebase initialisieren sobald bereit
+function initFirebase(){
+  window.fbInit(defD(), function(data){
+    if(_ignoreNextUpdate) return;
+    D=data;
+    renderAll();
+    if(typeof adminRefresh==='function') try{adminRefresh();}catch(e){}
+  });
+}
+
+if(window.firebaseReady){
+  initFirebase();
+} else {
+  window.addEventListener('firebaseReady', initFirebase);
+  // Fallback: localStorage nutzen bis Firebase antwortet
+  const raw=localStorage.getItem('vicky_v3');
+  if(raw) try{D=JSON.parse(raw);}catch(e){}
+}
 
 function parseT(s){const[h,m]=(s||'09:00').split(':').map(Number);return h*60+(m||0);}
 function fmtT(m){return('0'+Math.floor(m/60)).slice(-2)+':'+('0'+(m%60)).slice(-2);}
@@ -720,6 +802,22 @@ function impData(e){
   r.readAsText(e.target.files[0]);
 }
 function resetAll(){D=defD();save();renderAll();adminRefresh();}
+
+// Live-Status Indikator einblenden
+(function(){
+  const el=document.createElement('div');
+  el.id='live-badge';
+  el.innerHTML='🔴 Verbinde...';
+  el.style.cssText='position:fixed;bottom:12px;right:12px;background:rgba(0,0,0,.65);color:#fff;padding:5px 11px;border-radius:20px;font-size:.72rem;font-weight:700;z-index:9999;pointer-events:none;transition:all .3s';
+  document.body.appendChild(el);
+  window.addEventListener('firebaseReady',()=>{
+    el.innerHTML='🟢 Live';
+    el.style.background='rgba(39,174,96,.85)';
+    setTimeout(()=>{el.style.opacity='0';},3000);
+    setTimeout(()=>{el.style.display='none';},3500);
+  });
+})();
+
 renderAll();
 </script>
 </body>
