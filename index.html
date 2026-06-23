@@ -120,11 +120,34 @@ window.fbSave = async function(data) {
 };
 
 // Echtzeit-Listener: Wenn sich Daten in Firebase ändern → sofort neu laden
+// Migriert alte Teamnamen auf neue
+window.migrateData = function migrateData(data) {
+  const renames = {
+    'Eintracht Lokstedt': 'Vicky Pink',
+    'Grün Weiß Eimsbüttel': 'Vorwärts Wacker 2019'
+  };
+  function fixArr(arr) {
+    if (!Array.isArray(arr)) return arr;
+    return arr.map(t => renames[t] || t);
+  }
+  [1, 2].forEach(dg => {
+    if (!data[dg]) return;
+    if (data[dg].teams) {
+      ['A','B','C','D'].forEach(g => {
+        if (data[dg].teams[g]) data[dg].teams[g] = fixArr(data[dg].teams[g]);
+      });
+    }
+    if (data[dg].goldTeams)   data[dg].goldTeams   = fixArr(data[dg].goldTeams);
+    if (data[dg].silberTeams) data[dg].silberTeams = fixArr(data[dg].silberTeams);
+  });
+  return data;
+}
+
 window.fbListen = function(callback) {
   onSnapshot(doc(db, "turnier", "daten"), (snap) => {
     if (snap.exists()) {
       try {
-        const data = JSON.parse(snap.data().payload);
+        const data = migrateData(JSON.parse(snap.data().payload));
         callback(data);
       } catch(e) { console.error("Firebase parse error:", e); }
     }
@@ -136,7 +159,7 @@ window.fbInit = async function(defaultData, callback) {
   try {
     const snap = await getDoc(doc(db, "turnier", "daten"));
     if (snap.exists()) {
-      const data = JSON.parse(snap.data().payload);
+      const data = migrateData(JSON.parse(snap.data().payload));
       callback(data);
     } else {
       // Erste Nutzung: Default-Daten in Firebase schreiben
@@ -342,7 +365,7 @@ if(window.firebaseReady){
   window.addEventListener('firebaseReady', initFirebase);
   // Fallback: localStorage nutzen bis Firebase antwortet
   const raw=localStorage.getItem('vicky_v3');
-  if(raw) try{D=JSON.parse(raw);}catch(e){}
+  if(raw) try{D=window.migrateData?window.migrateData(JSON.parse(raw)):JSON.parse(raw);}catch(e){}
 }
 
 function parseT(s){const[h,m]=(s||'09:00').split(':').map(Number);return h*60+(m||0);}
