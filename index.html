@@ -401,9 +401,13 @@ function gruppenSpiele(dg){
 }
 
 // Berechnet Slots (je max. 4 Spiele) für eine Runde, gibt Array von Slot-Arrays zurück
-function buildSlots(teams){
+// skipPairs: Set von "i,j" Strings die übersprungen werden sollen (Gruppe-Rückspiele)
+function buildSlots(teams, skipPairs){
   const pairs=[];
-  for(let i=0;i<teams.length;i++)for(let j=i+1;j<teams.length;j++)pairs.push([i,j]);
+  for(let i=0;i<teams.length;i++)for(let j=i+1;j<teams.length;j++){
+    if(skipPairs&&skipPairs.has(i+','+j)) continue;
+    pairs.push([i,j]);
+  }
   const slots=[];
   let remaining=[...pairs.map((p,i)=>({p,i}))];
   while(remaining.length>0){
@@ -424,9 +428,28 @@ function buildSlots(teams){
 }
 
 // Erzeugt Spiele für Gold+Silber abwechselnd auf allen 4 Feldern
-function buildFinalSpiele(goldTeams,silberTeams,startMin){
-  const gs=buildSlots(goldTeams);
-  const ss=buildSlots(silberTeams);
+// Überspringt Paarungen die bereits in der Gruppenphase gespielt wurden
+function buildFinalSpiele(goldTeams,silberTeams,startMin,dg){
+  // Ermittle welche Teams aus derselben Gruppe kommen
+  function getGroupSkipNames(teams){
+    const skipNames=new Set();
+    if(!dg||!D[dg]) return skipNames;
+    ['A','B','C','D'].forEach(g=>{
+      const grp=D[dg].teams[g]||[];
+      // Alle Paare innerhalb dieser Gruppe die auch in teams enthalten sind
+      for(let i=0;i<grp.length;i++)for(let j=i+1;j<grp.length;j++){
+        if(teams.includes(grp[i])&&teams.includes(grp[j])){
+          // Normalisiert als kleinerer Index zuerst
+          const a=teams.indexOf(grp[i]), b=teams.indexOf(grp[j]);
+          const lo=Math.min(a,b), hi=Math.max(a,b);
+          skipNames.add(lo+','+hi);
+        }
+      }
+    });
+    return skipNames;
+  }
+  const gs=buildSlots(goldTeams, getGroupSkipNames(goldTeams));
+  const ss=buildSlots(silberTeams, getGroupSkipNames(silberTeams));
   const result=[];
   let t=startMin;
   for(let i=0;i<Math.max(gs.length,ss.length);i++){
@@ -448,12 +471,12 @@ function buildFinalSpiele(goldTeams,silberTeams,startMin){
   return result;
 }
 
-function gsStart(dg){return parseT(D.starts[dg])+6*12;}
+function gsStart(dg){return parseT(D.starts[dg])+6*12+12;}
 
 function getFinalSpiele(dg,teamsG,teamsS){
   if(!teamsG||!teamsG.length) return [];
   const tS=teamsS||[];
-  return buildFinalSpiele(teamsG,tS,gsStart(dg));
+  return buildFinalSpiele(teamsG,tS,gsStart(dg),dg);
 }
 
 function getSpiele(dg,ph,teamsOverride){
